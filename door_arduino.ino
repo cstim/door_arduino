@@ -1,3 +1,6 @@
+#include <RBD_Timer.h> // https://github.com/alextaujenis/RBD_Timer
+#include <RBD_Light.h> // https://github.com/alextaujenis/RBD_Light
+
 // The Bounce2 library http://playground.arduino.cc/Code/Bounce
 #include <Bounce2.h>
 
@@ -34,24 +37,29 @@ enum State {
 /** This is the door's actual state */
 State state = DOOR_DOWN;
 long lastMoveStart = 0;
-const long moveDurationTotal = 18000; // total movement takes this milliseconds
+const long moveDurationTotal = 18000; // total movement takes this milliseconds; DEBUG: 2000
 const long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
 
+// The wrappers for the input buttons debouncing
 Bounce inButtonDebounce;
 Bounce inButtonDownDebounce;
-unsigned long debounceDelay = 50;
+const unsigned long debounceDelay = 40;
+
+// The wrapper for the warning light output
+RBD::Light outWarnLightTimer(outWarnLight);
+RBD::Timer doorUpStartReclose;
+RBD::Timer doorUpReallyReclose;
 
 // the setup routine runs once when you press reset:
 void setup() {
   // initialize the digital pin as an output.
   pinMode(outMotorOn, OUTPUT);
   pinMode(outMotorUp, OUTPUT);
-  pinMode(outWarnLight, OUTPUT);
+  outWarnLightTimer.off(); // reversed polarity
   //pinMode(outRoomLight, OUTPUT);
 
   digitalWrite(outMotorOn, RELAY_OFF);
   digitalWrite(outMotorUp, RELAY_OFF);
-  digitalWrite(outWarnLight, RELAY_OFF);
   //digitalWrite(outRoomLight, RELAY_OFF);
 
   pinMode(inButton, INPUT_PULLUP);
@@ -65,83 +73,110 @@ void setup() {
 #ifdef DEBUG
   Serial.begin(9600);
 #endif
+  doorUpStartReclose.setTimeout(10*60*1000); // 10 minutes before reclose; DEBUG: 5*1000
+  doorUpReallyReclose.setTimeout(10*1000); // 10 seconds of warning; DEBUG: 3*1000
+  doorUpStartReclose.stop();
+  doorUpReallyReclose.stop();
+
+  outWarnLightTimer.on(); // reversed polarity
 }
 
 // the loop routine runs over and over again forever:
 void loop() {
-  const unsigned long now = millis();
 
+  // Update for the input buttons
   const bool onInButtonChanged = inButtonDebounce.update();
   const bool onInButtonPressed = onInButtonChanged && (inButtonDebounce.read() == LOW);
 
   const bool onInButtonDownChanged = inButtonDownDebounce.update();
   const bool onInButtonDownPressed = onInButtonDownChanged && (inButtonDownDebounce.read() == LOW);
 
+  // Update for the timed output LED
+  outWarnLightTimer.update();
+
 #ifdef DEBUG
   if (onInButtonChanged) {
     Serial.print("onInButtonChanged, now = ");
     Serial.print(inButtonDebounce.read());
     Serial.print(" at ");
-    Serial.println(now);
+    Serial.println(millis());
   }
   if (onInButtonDownChanged) {
     Serial.print("onInButtonDownChanged, now = ");
     Serial.print(inButtonDownDebounce.read());
     Serial.print(" at ");
-    Serial.println(now);
+    Serial.println(millis());
   }
 #endif
 
   switch (state) {
     case DOOR_DOWN:
+      // Door down/closed: Make sure motor is off
       digitalWrite(outMotorOn, RELAY_OFF);
       digitalWrite(outMotorUp, RELAY_OFF);
-      digitalWrite(outWarnLight, RELAY_OFF);
+      // State change: Only when the Up-Button is pressed
       if (onInButtonPressed) {
         state = DOOR_MOVING_UP;
-        lastMoveStart = now;
+        lastMoveStart = millis();
+        outWarnLightTimer.off(); // reversed polarity
       }
       break;
 
     case DOOR_UP:
+      // Door up/open: Make sure motor is off
       digitalWrite(outMotorOn, RELAY_OFF);
       digitalWrite(outMotorUp, RELAY_OFF);
-      digitalWrite(outWarnLight, RELAY_OFF);
-      if (onInButtonPressed || onInButtonDownPressed) {
+      // State change can be because of multiple things
+      if (onInButtonPressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
         state = DOOR_MOVING_DOWN;
-        lastMoveStart = now;
+        lastMoveStart = millis();
+        outWarnLightTimer.off(); // reversed polarity
+        doorUpStartReclose.stop();
+        doorUpReallyReclose.stop();
+      }
+      // While the door is open, check for the timer timeout of re-closing
+      if (doorUpStartReclose.onExpired()) {
+        doorUpReallyReclose.restart();
+        outWarnLightTimer.blink(150, 150);
       }
       break;
 
     case DOOR_MOVING_DOWN:
+      // Door moving downwards/closing
       digitalWrite(outMotorOn, RELAY_ON);
       digitalWrite(outMotorUp, RELAY_OFF);
-      digitalWrite(outWarnLight, RELAY_ON);
-      if (now - lastMoveStart > moveDurationTotal) {
+      // Check for timeout so that we are down/closed
+      if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_DOWN;
+        outWarnLightTimer.on(); // reversed polarity
       }
+      // State change: Pressed button for changing direction?
       if (onInButtonPressed) {
         state = DOOR_MOVING_UP;
         digitalWrite(outMotorOn, RELAY_OFF);
         delay(moveTurnaroundPause);
-        const unsigned long moveRemaining = moveDurationTotal - (now - lastMoveStart);
-        lastMoveStart = now - moveRemaining + moveTurnaroundPause;
+        const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
+        lastMoveStart = millis() - moveRemaining + moveTurnaroundPause;
       }
       break;
 
     case DOOR_MOVING_UP:
+      // Door moving upwards/opening
       digitalWrite(outMotorOn, RELAY_ON);
       digitalWrite(outMotorUp, RELAY_ON);
-      digitalWrite(outWarnLight, RELAY_ON);
-      if (now - lastMoveStart > moveDurationTotal) {
+      // Check for timeout so that we are up/opened
+      if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_UP;
+        outWarnLightTimer.on(); // reversed polarity
+        doorUpStartReclose.restart();
       }
+      // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
         state = DOOR_MOVING_DOWN;
         digitalWrite(outMotorOn, RELAY_OFF);
         delay(moveTurnaroundPause);
-        const unsigned long moveRemaining = moveDurationTotal - (now - lastMoveStart);
-        lastMoveStart = now - moveRemaining + moveTurnaroundPause;
+        const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
+        lastMoveStart = millis() - moveRemaining + moveTurnaroundPause;
       }
       break;
   }
