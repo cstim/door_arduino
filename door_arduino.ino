@@ -14,7 +14,7 @@
 const int outMotorOn = 7;
 const int outMotorUp = 6;
 const int outWarnLight = 5;
-//const int outRoomLight = 4;
+const int outRoomLight = 4;
 
 const int inButton = 3;
 const int inButtonDown = 2;
@@ -37,7 +37,12 @@ enum State {
 /** This is the door's actual state */
 State state = DOOR_DOWN;
 long lastMoveStart = 0;
-const long moveDurationTotal = 18000; // total movement takes this milliseconds; DEBUG: 2000
+const long moveDurationTotal =
+#ifdef DEBUG
+  2000;
+#else
+  18000; // total movement takes this milliseconds; DEBUG: 2000
+#endif
 const long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
 
 // The wrappers for the input buttons debouncing
@@ -46,7 +51,8 @@ Bounce inButtonDownDebounce;
 const unsigned long debounceDelay = 40;
 
 // The wrapper for the warning light output
-RBD::Light outWarnLightTimer(outWarnLight);
+RBD::Light outWarnLightTimer;
+RBD::Light outRoomLightTimer;
 RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
 
@@ -55,12 +61,14 @@ void setup() {
   // initialize the digital pin as an output.
   pinMode(outMotorOn, OUTPUT);
   pinMode(outMotorUp, OUTPUT);
-  outWarnLightTimer.off(); // reversed polarity
-  //pinMode(outRoomLight, OUTPUT);
+  outWarnLightTimer.setupPin(outWarnLight, true, true);
+  outWarnLightTimer.blink(150, 150, 2);
+
+  outRoomLightTimer.setupPin(outRoomLight, true, true);
+  outRoomLightTimer.off();
 
   digitalWrite(outMotorOn, RELAY_OFF);
   digitalWrite(outMotorUp, RELAY_OFF);
-  //digitalWrite(outRoomLight, RELAY_OFF);
 
   pinMode(inButton, INPUT_PULLUP);
   inButtonDebounce.attach(inButton);
@@ -73,12 +81,22 @@ void setup() {
 #ifdef DEBUG
   Serial.begin(9600);
 #endif
-  doorUpStartReclose.setTimeout(10*60*1000); // 10 minutes before reclose; DEBUG: 5*1000
-  doorUpReallyReclose.setTimeout(10*1000); // 10 seconds of warning; DEBUG: 3*1000
+  doorUpStartReclose.setTimeout(
+#ifdef DEBUG
+    5*1000
+#else
+    10*60*1000
+#endif
+  ); // 10 minutes before reclose; DEBUG: 5*1000
+  doorUpReallyReclose.setTimeout(
+#ifdef DEBUG
+  3*1000
+#else
+  10*1000
+#endif
+  ); // 10 seconds of warning; DEBUG: 3*1000
   doorUpStartReclose.stop();
   doorUpReallyReclose.stop();
-
-  outWarnLightTimer.on(); // reversed polarity
 }
 
 // the loop routine runs over and over again forever:
@@ -118,7 +136,8 @@ void loop() {
       if (onInButtonPressed) {
         state = DOOR_MOVING_UP;
         lastMoveStart = millis();
-        outWarnLightTimer.off(); // reversed polarity
+        outWarnLightTimer.on();
+        outRoomLightTimer.blink(150, 150, 1);
       }
       break;
 
@@ -130,9 +149,10 @@ void loop() {
       if (onInButtonPressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
         state = DOOR_MOVING_DOWN;
         lastMoveStart = millis();
-        outWarnLightTimer.off(); // reversed polarity
+        outWarnLightTimer.on();
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
+        outRoomLightTimer.blink(150, 150, 1);
       }
       // While the door is open, check for the timer timeout of re-closing
       if (doorUpStartReclose.onExpired()) {
@@ -148,7 +168,7 @@ void loop() {
       // Check for timeout so that we are down/closed
       if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_DOWN;
-        outWarnLightTimer.on(); // reversed polarity
+        outWarnLightTimer.off();
       }
       // State change: Pressed button for changing direction?
       if (onInButtonPressed) {
@@ -167,7 +187,7 @@ void loop() {
       // Check for timeout so that we are up/opened
       if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_UP;
-        outWarnLightTimer.on(); // reversed polarity
+        outWarnLightTimer.off();
         doorUpStartReclose.restart();
       }
       // State change: Pressed button for changing direction?
