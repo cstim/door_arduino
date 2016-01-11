@@ -15,6 +15,7 @@ const int outMotorOn = 7;
 const int outMotorUp = 6;
 const int outWarnLight = 5;
 const int outRoomLight = 4;
+const int outArduinoLedPin = 13;
 
 const int inButton = 3;
 const int inButtonDown = 2;
@@ -53,19 +54,27 @@ const unsigned long debounceDelay = 40;
 // The wrapper for the warning light output
 RBD::Light outWarnLightTimer;
 RBD::Light outRoomLightTimer;
+RBD::Light outArduinoLed;
 RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
+const unsigned long blinkTime = 200; // milliseconds
+
+inline void outRoomLightSwitchOn() {
+  outRoomLightTimer.blink(150, 150, 1);
+}
 
 // the setup routine runs once when you press reset:
 void setup() {
   // initialize the digital pin as an output.
   pinMode(outMotorOn, OUTPUT);
   pinMode(outMotorUp, OUTPUT);
-  outWarnLightTimer.setupPin(outWarnLight, true, true);
-  outWarnLightTimer.blink(150, 150, 2);
+  outWarnLightTimer.setupPin(outWarnLight);
+  outWarnLightTimer.fade(blinkTime, blinkTime, blinkTime, blinkTime, 2);
 
-  outRoomLightTimer.setupPin(outRoomLight, true, true);
-  outRoomLightTimer.off();
+  outRoomLightTimer.setupPin(outRoomLight, true, true); // digital=true, inverted=true
+  outRoomLightSwitchOn();
+  outArduinoLed.setupPin(outArduinoLedPin, true); // digital=true
+  outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
 
   digitalWrite(outMotorOn, RELAY_OFF);
   digitalWrite(outMotorUp, RELAY_OFF);
@@ -87,14 +96,14 @@ void setup() {
 #else
     10*60*1000
 #endif
-  ); // 10 minutes before reclose; DEBUG: 5*1000
+  ); // 10 minutes before reclose; DEBUG: 5 seconds
   doorUpReallyReclose.setTimeout(
 #ifdef DEBUG
   3*1000
 #else
   10*1000
 #endif
-  ); // 10 seconds of warning; DEBUG: 3*1000
+  ); // 10 seconds of warning; DEBUG: 3 seconds
   doorUpStartReclose.stop();
   doorUpReallyReclose.stop();
 }
@@ -111,6 +120,8 @@ void loop() {
 
   // Update for the timed output LED
   outWarnLightTimer.update();
+  outRoomLightTimer.update();
+  outArduinoLed.update();
 
 #ifdef DEBUG
   if (onInButtonChanged) {
@@ -137,7 +148,7 @@ void loop() {
         state = DOOR_MOVING_UP;
         lastMoveStart = millis();
         outWarnLightTimer.on();
-        outRoomLightTimer.blink(150, 150, 1);
+        outRoomLightSwitchOn();
       }
       break;
 
@@ -152,12 +163,13 @@ void loop() {
         outWarnLightTimer.on();
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
-        outRoomLightTimer.blink(150, 150, 1);
+        outRoomLightSwitchOn();
       }
       // While the door is open, check for the timer timeout of re-closing
       if (doorUpStartReclose.onExpired()) {
         doorUpReallyReclose.restart();
-        outWarnLightTimer.blink(150, 150);
+        outWarnLightTimer.blink(blinkTime, blinkTime);
+        outRoomLightSwitchOn();
       }
       break;
 
@@ -169,6 +181,7 @@ void loop() {
       if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_DOWN;
         outWarnLightTimer.off();
+        outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
       }
       // State change: Pressed button for changing direction?
       if (onInButtonPressed) {
@@ -189,6 +202,7 @@ void loop() {
         state = DOOR_UP;
         outWarnLightTimer.off();
         doorUpStartReclose.restart();
+        outArduinoLed.blink(500, 500); // in DOOR_UP state we blink somewhat faster
       }
       // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
