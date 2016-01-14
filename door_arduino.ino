@@ -156,6 +156,12 @@ void loop() {
       // Door up/open: Make sure motor is off
       digitalWrite(outMotorOn, RELAY_OFF);
       digitalWrite(outMotorUp, RELAY_OFF);
+      // Special rule on Up-Button, if the reclose blinking is ongoing: Cancel the reclose
+      if (doorUpReallyReclose.isActive() && onInButtonPressed) {
+        doorUpReallyReclose.stop();
+        doorUpStartReclose.restart();
+        outWarnLightTimer.off();
+      } else
       // State change can be because of multiple things
       if (onInButtonPressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
         state = DOOR_MOVING_DOWN;
