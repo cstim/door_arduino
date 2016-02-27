@@ -48,6 +48,13 @@ const long moveDurationTotal =
   18000; // total movement takes this milliseconds; DEBUG: 2000
 #endif
 const long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
+const long waitingTimeBeforeReclose =
+#ifdef DEBUG
+    5*1000;
+#else
+    600*1000;
+#endif
+// 10 minutes before reclose; DEBUG: 5 seconds
 
 // The wrappers for the input buttons debouncing
 Bounce inButtonDebounce;
@@ -99,13 +106,7 @@ void setup() {
 #ifdef DEBUG
   Serial.begin(9600);
 #endif
-  doorUpStartReclose.setTimeout(
-#ifdef DEBUG
-    5*1000
-#else
-    10*60*1000
-#endif
-  ); // 10 minutes before reclose; DEBUG: 5 seconds
+  doorUpStartReclose.setTimeout(waitingTimeBeforeReclose);
   doorUpReallyReclose.setTimeout(
 #ifdef DEBUG
   3*1000
@@ -196,7 +197,7 @@ void loop() {
         outRoomLightSwitchOn();
       }
       // While the door is open, check for the timer timeout of re-closing
-      if (doorUpStartReclose.onExpired()) {
+      if (false) { // doorUpStartReclose.onExpired()) { // FIXME: This does not work somehow!!!
         doorUpReallyReclose.restart();
         outWarnLightTimer.blink(blinkTime, blinkTime);
         outRoomLightSwitchOn();
