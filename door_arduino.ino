@@ -3,6 +3,7 @@
 
 // The Bounce2 library http://playground.arduino.cc/Code/Bounce
 #include <Bounce2.h>
+#include <BounceAnalog.h> // a variation of Bounce2 with analog input
 
 /*
   Garage-Door State machine 2
@@ -20,6 +21,8 @@ const int outArduinoLedPin = 13;
 const int inButton = 3;
 const int inButtonDown = 2;
 //const int inButtonInside =
+const int inAnalogPinOutsideButton = 0;
+const int inAnalogPinPhotosensor = 5; // right now unused!
 
 // The relays are active-low, so we better define readable names for this
 #define RELAY_ON LOW
@@ -49,6 +52,7 @@ const long moveTurnaroundPause = 300; // extra waiting time when switching from 
 // The wrappers for the input buttons debouncing
 Bounce inButtonDebounce;
 Bounce inButtonDownDebounce;
+BounceAnalog inButtonOutsideDebounce;
 const unsigned long debounceDelay = 40;
 
 // The wrapper for the warning light output
@@ -87,6 +91,11 @@ void setup() {
   inButtonDownDebounce.attach(inButtonDown);
   inButtonDownDebounce.interval(debounceDelay);
 
+  // The input button that has a potentiometer behaviour (due to humidity)
+  inButtonOutsideDebounce.attach(inAnalogPinOutsideButton);
+  inButtonOutsideDebounce.interval(debounceDelay);
+  inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
+
 #ifdef DEBUG
   Serial.begin(9600);
 #endif
@@ -112,8 +121,11 @@ void setup() {
 void loop() {
 
   // Update for the input buttons
+  const bool onInButtonOutsideChanged = inButtonOutsideDebounce.update();
+  const bool onInButtonOutsidePressed = onInButtonOutsideChanged && (inButtonOutsideDebounce.read() == LOW);
+
   const bool onInButtonChanged = inButtonDebounce.update();
-  const bool onInButtonPressed = onInButtonChanged && (inButtonDebounce.read() == LOW);
+  const bool onInButtonPressed = onInButtonOutsidePressed || (onInButtonChanged && (inButtonDebounce.read() == LOW));
 
   const bool onInButtonDownChanged = inButtonDownDebounce.update();
   const bool onInButtonDownPressed = onInButtonDownChanged && (inButtonDownDebounce.read() == LOW);
@@ -124,6 +136,18 @@ void loop() {
   outArduinoLed.update();
 
 #ifdef DEBUG
+  int val;
+  Serial.print("Photosensor = ");
+  val = analogRead(inAnalogPinPhotosensor);
+  Serial.println(val);
+
+  Serial.print("OutsidePoti = ");
+  val = analogRead(inAnalogPinOutsideButton);
+  Serial.println(val);
+
+  if (onInButtonOutsideChanged) {
+    Serial.print("onInButtonOutsideChanged  -- ");
+  }
   if (onInButtonChanged) {
     Serial.print("onInButtonChanged, now = ");
     Serial.print(inButtonDebounce.read());
@@ -209,6 +233,7 @@ void loop() {
         outWarnLightTimer.off();
         doorUpStartReclose.restart();
         outArduinoLed.blink(500, 500); // in DOOR_UP state we blink somewhat faster
+        inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
       }
       // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
