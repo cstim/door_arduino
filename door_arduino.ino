@@ -22,7 +22,7 @@ const int pinInButton = 3;
 const int pinInButtonDown = 2;
 //const int pinInButtonInside =
 const int pinAnalogInOutsideButton = 0;
-const int pinAnalogInPhotosensor = 5; // right now unused!
+const int pinAnalogInPhotosensor = 5;
 
 // The relays are active-low, so we better define readable names for this
 #define RELAY_ON LOW
@@ -48,13 +48,19 @@ const unsigned long moveDurationTotal =
   18000L; // total movement takes this milliseconds; DEBUG: 2000
 #endif
 const unsigned long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
-const unsigned long waitingTimeBeforeReclose =
+const unsigned long waitingTimeBeforeRecloseDaylight =
 #ifdef DEBUG
     5*1000L;
 #else
-    600*1000L; // don't forget the trailing "L"!!!
+    // Don't forget the trailing "L"!!!
+    600*1000L; // 10 minutes (600 seconds) before reclose
 #endif
-// 10 minutes before reclose; DEBUG: 5 seconds
+const unsigned long waitingTimeBeforeRecloseNight =
+#ifdef DEBUG
+    3*1000L;
+#else
+    180*1000L; // 3 minutes before reclose at night
+#endif
 const unsigned long waitingTimeBeforeReallyReclose =
 #ifdef DEBUG
   3*1000L;
@@ -72,9 +78,12 @@ const unsigned long debounceDelay = 40;
 RBD::Light outWarnLightTimer;
 RBD::Light outRoomLightTimer;
 RBD::Light outArduinoLed;
+const unsigned long blinkTime = 200; // milliseconds
+
+// The timers for starting a reclosing
 RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
-const unsigned long blinkTime = 200; // milliseconds
+int ambientLightDarkValue = 1023; // The last value for the dark ambient light (=HIGH input)
 
 inline void outRoomLightSwitchOn() {
   outRoomLightTimer.blink(150, 150, 1);
@@ -112,7 +121,7 @@ void setup() {
 #ifdef DEBUG
   Serial.begin(9600);
 #endif
-  doorUpStartReclose.setTimeout(waitingTimeBeforeReclose);
+  doorUpStartReclose.setTimeout(waitingTimeBeforeRecloseDaylight);
   doorUpReallyReclose.setTimeout(waitingTimeBeforeReallyReclose);
   doorUpStartReclose.stop();
   doorUpReallyReclose.stop();
@@ -139,7 +148,7 @@ void loop() {
 #ifdef DEBUG
   int val;
   Serial.print("Photosensor = ");
-  val = analogRead(inAnalogPinPhotosensor);
+  val = analogRead(pinAnalogInPhotosensor);
   Serial.println(val);
 
   if (onInButtonOutsideChanged) {
@@ -168,6 +177,12 @@ void loop() {
       if (onInButtonPressed) {
         state = DOOR_MOVING_UP;
         lastMoveStart = millis();
+        // Store the current reading of the ambient light photo sensor. Door is closed = ambient light is dark = input pin is HIGH
+        ambientLightDarkValue = constrain(analogRead(pinAnalogInPhotosensor), 128, 1023);
+#ifdef DEBUG
+        Serial.print("Resetting ambientLightDarkValue to ");
+        Serial.println(ambientLightDarkValue);
+#endif
         outWarnLightTimer.on();
         outRoomLightSwitchOn();
       }
@@ -204,12 +219,14 @@ void loop() {
       // Door moving downwards/closing
       digitalWrite(pinOutMotorOn, RELAY_ON);
       digitalWrite(pinOutMotorUp, RELAY_OFF);
-      // Check for timeout so that we are down/closed
+
+      // State change: Have we reached the DOOR_DOWN position?
       if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_DOWN;
         outWarnLightTimer.off();
         outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
       }
+
       // State change: Pressed button for changing direction?
       if (onInButtonPressed) {
         state = DOOR_MOVING_UP;
@@ -224,14 +241,29 @@ void loop() {
       // Door moving upwards/opening
       digitalWrite(pinOutMotorOn, RELAY_ON);
       digitalWrite(pinOutMotorUp, RELAY_ON);
-      // Check for timeout so that we are up/opened
+
+      // State change: Have we reached the DOOR_UP position?
       if (millis() - lastMoveStart > moveDurationTotal) {
         state = DOOR_UP;
         outWarnLightTimer.off();
-        doorUpStartReclose.restart();
-        outArduinoLed.blink(500, 500); // in DOOR_UP state we blink somewhat faster
         inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
+
+        // What is the current ambient light? Is it brighter (=input pin is LOW), 
+        // say than 50% of the "dark" threshold? Then we have daylight.
+        const bool daylight = (analogRead(pinAnalogInPhotosensor) * 2 < ambientLightDarkValue);
+        doorUpStartReclose.setTimeout(daylight
+                                      ? waitingTimeBeforeRecloseDaylight
+                                      : waitingTimeBeforeRecloseNight);
+#ifdef DEBUG
+        Serial.print("Set restarting timer with daylight=");
+        Serial.print(daylight);
+        Serial.print(" to timeout=");
+        Serial.println(doorUpStartReclose.getTimeout());
+#endif
+        doorUpStartReclose.restart();
+        outArduinoLed.blink(400, daylight ? 400 : 800); // in DOOR_UP state we blink somewhat faster, also depending on daylight
       }
+
       // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
         state = DOOR_MOVING_DOWN;
