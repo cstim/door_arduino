@@ -52,7 +52,7 @@ const long waitingTimeBeforeReclose =
 #ifdef DEBUG
     5*1000;
 #else
-    600*1000;
+    600*1000L; // don't forget the trailing "L"!!!
 #endif
 // 10 minutes before reclose; DEBUG: 5 seconds
 
@@ -197,7 +197,7 @@ void loop() {
         outRoomLightSwitchOn();
       }
       // While the door is open, check for the timer timeout of re-closing
-      if (false) { // doorUpStartReclose.onExpired()) { // FIXME: This does not work somehow!!!
+      if (doorUpStartReclose.onExpired()) {
         doorUpReallyReclose.restart();
         outWarnLightTimer.blink(blinkTime, blinkTime);
         outRoomLightSwitchOn();
