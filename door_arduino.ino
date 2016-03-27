@@ -259,15 +259,17 @@ void loop() {
 
         // What is the current ambient light? Is it brighter (=input pin is LOW), 
         // say than 50% of the "dark" threshold? Then we have daylight.
-        const bool daylight = (analogRead(pinAnalogInPhotosensor) * 2 < ambientLightDarkValue);
-        doorUpStartReclose.setTimeout(daylight
+        const int photoValue = analogRead(pinAnalogInPhotosensor);
+        const bool daylight = true; // DISABLED FOR NOW! //(photoValue * 2 < ambientLightDarkValue) || (photoValue > 1023);
+        const long waitingTime =  daylight
                                       ? waitingTimeBeforeRecloseDaylight
-                                      : waitingTimeBeforeRecloseNight);
+                                      : waitingTimeBeforeRecloseNight;
+        doorUpStartReclose.setTimeout(waitingTime);
 #ifdef DEBUG
         Serial.print("Set restarting timer with daylight=");
         Serial.print(daylight);
         Serial.print(" to timeout=");
-        Serial.println(doorUpStartReclose.getTimeout());
+        Serial.println(waitingTime);
 #endif
         doorUpStartReclose.restart();
         outArduinoLed.blink(400, daylight ? 400 : 800); // in DOOR_UP state we blink somewhat faster, also depending on daylight
