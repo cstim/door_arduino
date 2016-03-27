@@ -85,6 +85,9 @@ RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
 int ambientLightDarkValue = 1023; // The last value for the dark ambient light (=HIGH input)
 
+// The variable to ensure printing only every 8th time some debug output
+int g_continuous_printing = 0;
+
 inline void outRoomLightSwitchOn() {
   outRoomLightTimer.blink(150, 150, 1);
 }
@@ -147,9 +150,15 @@ void loop() {
 
 #ifdef DEBUG
   int val;
-  Serial.print("Photosensor = ");
-  val = analogRead(pinAnalogInPhotosensor);
-  Serial.println(val);
+  g_continuous_printing++;
+  if ((g_continuous_printing & 0x3FF) == 0) {
+    Serial.print("Photosensor = ");
+    val = analogRead(pinAnalogInPhotosensor);
+    Serial.print(val);
+    Serial.print(" analogButton = ");
+    val = analogRead(pinAnalogInOutsideButton);
+    Serial.println(val);
+  }
 
   if (onInButtonOutsideChanged) {
     Serial.print("onInButtonOutsideChanged  -- ");
