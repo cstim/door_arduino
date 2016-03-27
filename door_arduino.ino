@@ -20,7 +20,7 @@ const int pinOutArduinoLedPin = 13;
 
 const int pinInButton = 3;
 const int pinInButtonDown = 2;
-//const int pinInButtonInside =
+const int pinInLightswitch = 0;
 const int pinAnalogInOutsideButton = 0;
 const int pinAnalogInPhotosensor = 5;
 
@@ -45,7 +45,7 @@ const unsigned long moveDurationTotal =
 #ifdef DEBUG
   2000;
 #else
-  18000L; // total movement takes this milliseconds; DEBUG: 2000
+  17000L; // total movement takes this milliseconds; DEBUG: 2000
 #endif
 const unsigned long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
 const unsigned long waitingTimeBeforeRecloseDaylight =
@@ -71,6 +71,7 @@ const unsigned long waitingTimeBeforeReallyReclose =
 // The wrappers for the input buttons debouncing
 Bounce inButtonDebounce;
 Bounce inButtonDownDebounce;
+Bounce inLightswitchDebounce;
 BounceAnalog inButtonOutsideDebounce;
 const unsigned long debounceDelay = 40;
 
@@ -116,6 +117,10 @@ void setup() {
   inButtonDownDebounce.attach(pinInButtonDown);
   inButtonDownDebounce.interval(debounceDelay);
 
+  pinMode(pinInLightswitch, INPUT_PULLUP);
+  inLightswitchDebounce.attach(pinInLightswitch);
+  inLightswitchDebounce.interval(debounceDelay);
+
   // The input button that has a potentiometer behaviour (due to humidity)
   inButtonOutsideDebounce.attach(pinAnalogInOutsideButton);
   inButtonOutsideDebounce.interval(debounceDelay);
@@ -142,6 +147,9 @@ void loop() {
 
   const bool onInButtonDownChanged = inButtonDownDebounce.update();
   const bool onInButtonDownPressed = onInButtonDownChanged && (inButtonDownDebounce.read() == LOW);
+
+  const bool onInLightswitchChanged = inLightswitchDebounce.update();
+  const bool onInLightswitchBlocked = (inLightswitchDebounce.read() == HIGH);
 
   // Update for the timed output LED
   outWarnLightTimer.update();
@@ -202,7 +210,7 @@ void loop() {
       digitalWrite(pinOutMotorOn, RELAY_OFF);
       digitalWrite(pinOutMotorUp, RELAY_OFF);
       // Special rule on Up-Button, if the reclose blinking is ongoing: Cancel the reclose
-      if (doorUpReallyReclose.isActive() && onInButtonPressed) {
+      if (doorUpReallyReclose.isActive() && (onInButtonPressed || onInLightswitchBlocked)) {
         doorUpReallyReclose.stop();
         doorUpStartReclose.restart();
         outWarnLightTimer.off();
@@ -243,6 +251,11 @@ void loop() {
         delay(moveTurnaroundPause);
         const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
         lastMoveStart = millis() - moveRemaining + moveTurnaroundPause;
+      } else if (onInLightswitchBlocked) {
+        digitalWrite(pinOutMotorOn, RELAY_OFF);
+        delay(moveTurnaroundPause);
+        digitalWrite(pinOutMotorOn, RELAY_ON);
+        lastMoveStart += moveTurnaroundPause;
       }
       break;
 
