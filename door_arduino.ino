@@ -37,10 +37,12 @@ enum State {
   , DOOR_UP
   , DOOR_MOVING_UP
   , DOOR_MOVING_DOWN
+  , DOOR_MOVING_DOWN_PAUSED
 };
 /** This is the door's actual state */
 State state = DOOR_DOWN;
 unsigned long lastMoveStart = 0;
+unsigned long lastMovePaused = 0;
 const unsigned long moveDurationTotal =
 #ifdef DEBUG
   2000;
@@ -48,18 +50,19 @@ const unsigned long moveDurationTotal =
   17000L; // total movement takes this milliseconds; DEBUG: 2000
 #endif
 const unsigned long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
+const unsigned long movingDownPause = 800; // If the lightswitch was blocked, wait for this time
 const unsigned long waitingTimeBeforeRecloseDaylight =
 #ifdef DEBUG
     5*1000L;
 #else
     // Don't forget the trailing "L"!!!
-    600*1000L; // 10 minutes (600 seconds) before reclose
+    600*1000L; // 10 minutes (600 seconds) before reclose during daylight
 #endif
 const unsigned long waitingTimeBeforeRecloseNight =
 #ifdef DEBUG
     3*1000L;
 #else
-    180*1000L; // 3 minutes before reclose at night
+    180*1000L; // 3 minutes (180 sec) before reclose at night
 #endif
 const unsigned long waitingTimeBeforeReallyReclose =
 #ifdef DEBUG
@@ -84,6 +87,7 @@ const unsigned long blinkTime = 200; // milliseconds
 // The timers for starting a reclosing
 RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
+RBD::Timer doorDownPausing;
 int ambientLightDarkValue = 1023; // The last value for the dark ambient light (=HIGH input)
 
 // The variable to ensure printing only every 8th time some debug output
@@ -131,8 +135,18 @@ void setup() {
 #endif
   doorUpStartReclose.setTimeout(waitingTimeBeforeRecloseDaylight);
   doorUpReallyReclose.setTimeout(waitingTimeBeforeReallyReclose);
+  doorDownPausing.setTimeout(movingDownPause);
   doorUpStartReclose.stop();
   doorUpReallyReclose.stop();
+  doorDownPausing.stop();
+}
+
+inline void transitionTo_MOVING_DOWN_PAUSED() {
+    state = DOOR_MOVING_DOWN_PAUSED;
+    digitalWrite(pinOutMotorOn, RELAY_OFF);
+    lastMovePaused = millis();
+    outWarnLightTimer.fade(blinkTime, 0, blinkTime, 0);
+    doorDownPausing.restart();
 }
 
 // the loop routine runs over and over again forever:
@@ -217,6 +231,7 @@ void loop() {
       } else
       // State change can be because of multiple things
       if (onInButtonPressed || onInButtonOutsidePressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
+        // Any button was pressed or timer expired => State change: Now move downwards
         state = DOOR_MOVING_DOWN;
         lastMoveStart = millis();
         outWarnLightTimer.on();
@@ -249,16 +264,37 @@ void loop() {
 
       // State change: Pressed button for changing direction?
       if (onInButtonPressed || onInButtonOutsidePressed) {
+        // Some up-button was pressed => State change: Now move up again
         state = DOOR_MOVING_UP;
         digitalWrite(pinOutMotorOn, RELAY_OFF);
         delay(moveTurnaroundPause);
         const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
         lastMoveStart = millis() - moveRemaining + moveTurnaroundPause;
       } else if (onInLightswitchBlocked) {
-        digitalWrite(pinOutMotorOn, RELAY_OFF);
-        delay(moveTurnaroundPause);
-        digitalWrite(pinOutMotorOn, RELAY_ON);
-        lastMoveStart += moveTurnaroundPause;
+        // Light switch is blocked => State change: Go into PAUSED state
+        transitionTo_MOVING_DOWN_PAUSED();
+      }
+      break;
+
+    case DOOR_MOVING_DOWN_PAUSED:
+      digitalWrite(pinOutMotorOn, RELAY_OFF);
+
+      // State change: Pressed button for changing direction?
+      if (onInButtonPressed || onInButtonOutsidePressed) {
+        // Some button was pressed => State change: Now move up again
+        state = DOOR_MOVING_UP;
+        outWarnLightTimer.on();
+        const unsigned long moveRemaining = moveDurationTotal - (lastMovePaused - lastMoveStart);
+        lastMoveStart = millis() - moveRemaining;
+      } else if (onInLightswitchBlocked) {
+        // Light switch is still blocked: Still waiting for pause time
+        doorDownPausing.restart();
+      } else if (doorDownPausing.onExpired()) {
+        // Light switch was free again for long enough => State change: Continue moving downwards
+        state = DOOR_MOVING_DOWN;
+        outWarnLightTimer.on();
+        const unsigned long movedAlready = lastMovePaused - lastMoveStart;
+        lastMoveStart = millis() - movedAlready;
       }
       break;
 
@@ -293,11 +329,9 @@ void loop() {
 
       // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
-        state = DOOR_MOVING_DOWN;
-        digitalWrite(pinOutMotorOn, RELAY_OFF);
-        delay(moveTurnaroundPause);
+        transitionTo_MOVING_DOWN_PAUSED();
         const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
-        lastMoveStart = millis() - moveRemaining + moveTurnaroundPause;
+        lastMoveStart = millis() - moveRemaining;
       }
       break;
   }
