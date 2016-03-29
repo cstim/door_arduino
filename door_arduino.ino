@@ -143,7 +143,7 @@ void loop() {
   const bool onInButtonOutsidePressed = onInButtonOutsideChanged && (inButtonOutsideDebounce.read() == LOW);
 
   const bool onInButtonChanged = inButtonDebounce.update();
-  const bool onInButtonPressed = onInButtonOutsidePressed || (onInButtonChanged && (inButtonDebounce.read() == LOW));
+  const bool onInButtonPressed = onInButtonChanged && (inButtonDebounce.read() == LOW);
 
   const bool onInButtonDownChanged = inButtonDownDebounce.update();
   const bool onInButtonDownPressed = onInButtonDownChanged && (inButtonDownDebounce.read() == LOW);
@@ -191,7 +191,7 @@ void loop() {
       digitalWrite(pinOutMotorOn, RELAY_OFF);
       digitalWrite(pinOutMotorUp, RELAY_OFF);
       // State change: Only when the Up-Button is pressed
-      if (onInButtonPressed) {
+      if (onInButtonPressed || onInButtonOutsidePressed) {
         state = DOOR_MOVING_UP;
         lastMoveStart = millis();
         // Store the current reading of the ambient light photo sensor. Door is closed = ambient light is dark = input pin is HIGH
@@ -216,13 +216,16 @@ void loop() {
         outWarnLightTimer.off();
       } else
       // State change can be because of multiple things
-      if (onInButtonPressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
+      if (onInButtonPressed || onInButtonOutsidePressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
         state = DOOR_MOVING_DOWN;
         lastMoveStart = millis();
         outWarnLightTimer.on();
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
         outRoomLightSwitchOn();
+        if (onInButtonDownPressed) {
+          inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
+        }
       }
       // While the door is open, check for the timer timeout of re-closing
       if (doorUpStartReclose.onExpired()) {
@@ -245,7 +248,7 @@ void loop() {
       }
 
       // State change: Pressed button for changing direction?
-      if (onInButtonPressed) {
+      if (onInButtonPressed || onInButtonOutsidePressed) {
         state = DOOR_MOVING_UP;
         digitalWrite(pinOutMotorOn, RELAY_OFF);
         delay(moveTurnaroundPause);
