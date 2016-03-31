@@ -56,7 +56,7 @@ const unsigned long waitingTimeBeforeRecloseDaylight =
     5*1000L;
 #else
     // Don't forget the trailing "L"!!!
-    600*1000L; // 10 minutes (600 seconds) before reclose during daylight
+    720*1000L; // 12 minutes (720 seconds) before reclose during daylight
 #endif
 const unsigned long waitingTimeBeforeRecloseNight =
 #ifdef DEBUG
@@ -145,7 +145,7 @@ inline void transitionTo_MOVING_DOWN_PAUSED() {
     state = DOOR_MOVING_DOWN_PAUSED;
     digitalWrite(pinOutMotorOn, RELAY_OFF);
     lastMovePaused = millis();
-    outWarnLightTimer.fade(blinkTime, 0, blinkTime, 0);
+    outWarnLightTimer.fade(blinkTime, blinkTime, blinkTime, blinkTime);
     doorDownPausing.restart();
 }
 
@@ -289,6 +289,9 @@ void loop() {
       } else if (onInLightswitchBlocked) {
         // Light switch is still blocked: Still waiting for pause time
         doorDownPausing.restart();
+        const unsigned long movedAlready = lastMovePaused - lastMoveStart;
+        lastMovePaused = millis();
+        lastMoveStart = lastMovePaused - movedAlready;
       } else if (doorDownPausing.onExpired()) {
         // Light switch was free again for long enough => State change: Continue moving downwards
         state = DOOR_MOVING_DOWN;
