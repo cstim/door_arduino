@@ -24,12 +24,41 @@ const int pinInLightswitch = 0;
 const int pinAnalogInOutsideButton = 0;
 const int pinAnalogInPhotosensor = 5;
 
+// Active if the serial output should be compiled in.
+//#define DEBUG
+
+// /////////////////////////////
+
+/// A management class for a recorded timestamp that should not be older than
+/// some constraint
+class ConstrainedTimestamp {
+    unsigned long m_value;
+    const unsigned long m_maxAge;
+  public:
+    ConstrainedTimestamp(unsigned long maxAge)
+        : m_value(0)
+        , m_maxAge(maxAge)
+    {}
+    void setValue(unsigned long value)
+    {
+        const unsigned long now = millis();
+        const unsigned long oldestValue =
+                (now > m_maxAge) ? (now - m_maxAge) : 0;
+        if (value >= now) {
+            m_value = now;
+        } else if (value <= oldestValue) {
+            m_value = oldestValue;
+        } else {
+            m_value = value;
+        }
+    }
+    unsigned long getValue() const { return m_value; }
+};
+
+
 // The relays are active-low, so we better define readable names for this
 #define RELAY_ON LOW
 #define RELAY_OFF HIGH
-
-// Active if the serial output should be compiled in.
-//#define DEBUG
 
 /** The states that the door can have*/
 enum State {
@@ -41,30 +70,30 @@ enum State {
 };
 /** This is the door's actual state */
 State state = DOOR_DOWN;
-unsigned long lastMoveStart = 0;
-unsigned long lastMovePaused = 0;
-const unsigned long moveDurationTotal =
+const unsigned long c_moveDurationTotal =
 #ifdef DEBUG
   2000;
 #else
   17000L; // total movement takes this milliseconds; DEBUG: 2000
 #endif
-const unsigned long moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
-const unsigned long movingDownPause = 800; // If the lightswitch was blocked, wait for this time
-const unsigned long waitingTimeBeforeRecloseDaylight =
+ConstrainedTimestamp g_lastMoveStart(c_moveDurationTotal);
+unsigned long g_lastMovePartCompleted = 0;
+const unsigned long c_moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
+const unsigned long c_movingDownPause = 800; // If the lightswitch was blocked, wait for this time
+const unsigned long c_waitingTimeBeforeRecloseDaylight =
 #ifdef DEBUG
     5*1000L;
 #else
     // Don't forget the trailing "L"!!!
     720*1000L; // 12 minutes (720 seconds) before reclose during daylight
 #endif
-const unsigned long waitingTimeBeforeRecloseNight =
+const unsigned long c_waitingTimeBeforeRecloseNight =
 #ifdef DEBUG
     3*1000L;
 #else
     180*1000L; // 3 minutes (180 sec) before reclose at night
 #endif
-const unsigned long waitingTimeBeforeReallyReclose =
+const unsigned long c_waitingTimeBeforeReallyReclose =
 #ifdef DEBUG
   3*1000L;
 #else
@@ -76,19 +105,19 @@ Bounce inButtonDebounce;
 Bounce inButtonDownDebounce;
 Bounce inLightswitchDebounce;
 BounceAnalog inButtonOutsideDebounce;
-const unsigned long debounceDelay = 40;
+const unsigned long c_debounceDelay = 40;
 
 // The wrapper for the warning light output
 RBD::Light outWarnLightTimer;
 RBD::Light outRoomLightTimer;
 RBD::Light outArduinoLed;
-const unsigned long blinkTime = 200; // milliseconds
+const unsigned long c_blinkTime = 200; // milliseconds
 
 // The timers for starting a reclosing
 RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
 RBD::Timer doorDownPausing;
-int ambientLightDarkValue = 1023; // The last value for the dark ambient light (=HIGH input)
+int g_ambientLightDarkValue = 1023; // The last value for the dark ambient light (=HIGH input)
 
 // The variable to ensure printing only every 8th time some debug output
 int g_continuous_printing = 0;
@@ -103,7 +132,7 @@ void setup() {
   pinMode(pinOutMotorOn, OUTPUT);
   pinMode(pinOutMotorUp, OUTPUT);
   outWarnLightTimer.setupPin(pinOutWarnLight);
-  outWarnLightTimer.fade(blinkTime, blinkTime, blinkTime, blinkTime, 2);
+  outWarnLightTimer.fade(c_blinkTime, c_blinkTime, c_blinkTime, c_blinkTime, 2);
 
   outRoomLightTimer.setupPin(pinOutRoomLight, true, true); // digital=true, inverted=true
   outRoomLightSwitchOn();
@@ -115,27 +144,27 @@ void setup() {
 
   pinMode(pinInButton, INPUT_PULLUP);
   inButtonDebounce.attach(pinInButton);
-  inButtonDebounce.interval(debounceDelay);
+  inButtonDebounce.interval(c_debounceDelay);
 
   pinMode(pinInButtonDown, INPUT_PULLUP);
   inButtonDownDebounce.attach(pinInButtonDown);
-  inButtonDownDebounce.interval(debounceDelay);
+  inButtonDownDebounce.interval(c_debounceDelay);
 
   pinMode(pinInLightswitch, INPUT_PULLUP);
   inLightswitchDebounce.attach(pinInLightswitch);
-  inLightswitchDebounce.interval(debounceDelay);
+  inLightswitchDebounce.interval(c_debounceDelay);
 
   // The input button that has a potentiometer behaviour (due to humidity)
   inButtonOutsideDebounce.attach(pinAnalogInOutsideButton);
-  inButtonOutsideDebounce.interval(debounceDelay);
+  inButtonOutsideDebounce.interval(c_debounceDelay);
   inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
 
 #ifdef DEBUG
   Serial.begin(9600);
 #endif
-  doorUpStartReclose.setTimeout(waitingTimeBeforeRecloseDaylight);
-  doorUpReallyReclose.setTimeout(waitingTimeBeforeReallyReclose);
-  doorDownPausing.setTimeout(movingDownPause);
+  doorUpStartReclose.setTimeout(c_waitingTimeBeforeRecloseDaylight);
+  doorUpReallyReclose.setTimeout(c_waitingTimeBeforeReallyReclose);
+  doorDownPausing.setTimeout(c_movingDownPause);
   doorUpStartReclose.stop();
   doorUpReallyReclose.stop();
   doorDownPausing.stop();
@@ -144,8 +173,8 @@ void setup() {
 inline void transitionTo_MOVING_DOWN_PAUSED() {
     state = DOOR_MOVING_DOWN_PAUSED;
     digitalWrite(pinOutMotorOn, RELAY_OFF);
-    lastMovePaused = millis();
-    outWarnLightTimer.fade(blinkTime, blinkTime, blinkTime, blinkTime);
+    g_lastMovePartCompleted = millis() - g_lastMoveStart.getValue();
+    outWarnLightTimer.fade(c_blinkTime, c_blinkTime, c_blinkTime, c_blinkTime);
     doorDownPausing.restart();
 }
 
@@ -179,7 +208,9 @@ void loop() {
     Serial.print(val);
     Serial.print(" analogButton = ");
     val = analogRead(pinAnalogInOutsideButton);
-    Serial.println(val);
+    Serial.print(val);
+    Serial.print(" inLightswitch = ");
+    Serial.println(onInLightswitchBlocked);
   }
 
   if (onInButtonOutsideChanged) {
@@ -207,12 +238,12 @@ void loop() {
       // State change: Only when the Up-Button is pressed
       if (onInButtonPressed || onInButtonOutsidePressed) {
         state = DOOR_MOVING_UP;
-        lastMoveStart = millis();
+        g_lastMoveStart.setValue(millis());
         // Store the current reading of the ambient light photo sensor. Door is closed = ambient light is dark = input pin is HIGH
-        ambientLightDarkValue = constrain(analogRead(pinAnalogInPhotosensor), 128, 1023);
+        g_ambientLightDarkValue = constrain(analogRead(pinAnalogInPhotosensor), 128, 1023);
 #ifdef DEBUG
         Serial.print("Resetting ambientLightDarkValue to ");
-        Serial.println(ambientLightDarkValue);
+        Serial.println(g_ambientLightDarkValue);
 #endif
         outWarnLightTimer.on();
         outRoomLightSwitchOn();
@@ -233,7 +264,7 @@ void loop() {
       if (onInButtonPressed || onInButtonOutsidePressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
         // Any button was pressed or timer expired => State change: Now move downwards
         state = DOOR_MOVING_DOWN;
-        lastMoveStart = millis();
+        g_lastMoveStart.setValue(millis());
         outWarnLightTimer.on();
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
@@ -245,7 +276,7 @@ void loop() {
       // While the door is open, check for the timer timeout of re-closing
       if (doorUpStartReclose.onExpired()) {
         doorUpReallyReclose.restart();
-        outWarnLightTimer.blink(blinkTime, blinkTime);
+        outWarnLightTimer.blink(c_blinkTime, c_blinkTime);
         outRoomLightSwitchOn();
       }
       break;
@@ -256,7 +287,7 @@ void loop() {
       digitalWrite(pinOutMotorUp, RELAY_OFF);
 
       // State change: Have we reached the DOOR_DOWN position?
-      if (millis() - lastMoveStart > moveDurationTotal) {
+      if (millis() - g_lastMoveStart.getValue() > c_moveDurationTotal) {
         state = DOOR_DOWN;
         outWarnLightTimer.off();
         outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
@@ -267,9 +298,9 @@ void loop() {
         // Some up-button was pressed => State change: Now move up again
         state = DOOR_MOVING_UP;
         digitalWrite(pinOutMotorOn, RELAY_OFF);
-        delay(moveTurnaroundPause);
-        const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
-        lastMoveStart = millis() - moveRemaining + moveTurnaroundPause;
+        const unsigned long moveRemaining = c_moveDurationTotal - (millis() - g_lastMoveStart.getValue());
+        delay(c_moveTurnaroundPause);
+        g_lastMoveStart.setValue(millis() - moveRemaining + c_moveTurnaroundPause);
       } else if (onInLightswitchBlocked) {
         // Light switch is blocked => State change: Go into PAUSED state
         transitionTo_MOVING_DOWN_PAUSED();
@@ -284,20 +315,18 @@ void loop() {
         // Some button was pressed => State change: Now move up again
         state = DOOR_MOVING_UP;
         outWarnLightTimer.on();
-        const unsigned long moveRemaining = moveDurationTotal - (lastMovePaused - lastMoveStart);
-        lastMoveStart = millis() - moveRemaining;
-      } else if (onInLightswitchBlocked) {
-        // Light switch is still blocked: Still waiting for pause time
-        doorDownPausing.restart();
-        const unsigned long movedAlready = lastMovePaused - lastMoveStart;
-        lastMovePaused = millis();
-        lastMoveStart = lastMovePaused - movedAlready;
+        const unsigned long moveRemaining = c_moveDurationTotal - g_lastMovePartCompleted;
+        g_lastMoveStart.setValue(millis() - moveRemaining);
       } else if (doorDownPausing.onExpired()) {
-        // Light switch was free again for long enough => State change: Continue moving downwards
-        state = DOOR_MOVING_DOWN;
-        outWarnLightTimer.on();
-        const unsigned long movedAlready = lastMovePaused - lastMoveStart;
-        lastMoveStart = millis() - movedAlready;
+        if (onInLightswitchBlocked) {
+          // Light switch is still blocked: Still waiting for pause time
+          doorDownPausing.restart();
+        } else {
+          // Light switch was free again for long enough => State change: Continue moving downwards
+          state = DOOR_MOVING_DOWN;
+          outWarnLightTimer.on();
+          g_lastMoveStart.setValue(millis() - g_lastMovePartCompleted);
+        }
       }
       break;
 
@@ -307,7 +336,7 @@ void loop() {
       digitalWrite(pinOutMotorUp, RELAY_ON);
 
       // State change: Have we reached the DOOR_UP position?
-      if (millis() - lastMoveStart > moveDurationTotal) {
+      if (millis() - g_lastMoveStart.getValue() > c_moveDurationTotal) {
         state = DOOR_UP;
         outWarnLightTimer.off();
         inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
@@ -317,8 +346,8 @@ void loop() {
         const int photoValue = analogRead(pinAnalogInPhotosensor);
         const bool daylight = true; // DISABLED FOR NOW! //(photoValue * 2 < ambientLightDarkValue) || (photoValue > 1023);
         const long waitingTime =  daylight
-                                      ? waitingTimeBeforeRecloseDaylight
-                                      : waitingTimeBeforeRecloseNight;
+                                      ? c_waitingTimeBeforeRecloseDaylight
+                                      : c_waitingTimeBeforeRecloseNight;
         doorUpStartReclose.setTimeout(waitingTime);
 #ifdef DEBUG
         Serial.print("Set restarting timer with daylight=");
@@ -332,9 +361,9 @@ void loop() {
 
       // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
+        const unsigned long movePartCompleted = millis() - g_lastMoveStart.getValue();
         transitionTo_MOVING_DOWN_PAUSED();
-        const unsigned long moveRemaining = moveDurationTotal - (millis() - lastMoveStart);
-        lastMoveStart = millis() - moveRemaining;
+        g_lastMovePartCompleted = c_moveDurationTotal - movePartCompleted;
       }
       break;
   }
