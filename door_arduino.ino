@@ -335,6 +335,7 @@ void loop() {
         Serial.print(": state MOVING_DOWN -> PAUSED due to lightswitchBlocked. lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
 #endif
+        delay(1); // otherwise we get a wrong state transition
       }
       break;
 
@@ -355,6 +356,7 @@ void loop() {
         Serial.print(" lastMoveStart=");
         Serial.println(g_lastMoveStart.getValue());
 #endif
+        delay(1); // otherwise we get a wrong state transition
       } else if (onInLightswitchBlocked) {
         // Light switch is still blocked: Still waiting for pause time
         doorDownPausing.restart();
@@ -371,6 +373,7 @@ void loop() {
         Serial.print("; lastMoveStart=");
         Serial.println(g_lastMoveStart.getValue());
 #endif
+        delay(1); // otherwise we get a wrong state transition
       }
       break;
 
