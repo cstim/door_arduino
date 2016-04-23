@@ -173,7 +173,6 @@ void setup() {
 inline void transitionTo_MOVING_DOWN_PAUSED() {
     state = DOOR_MOVING_DOWN_PAUSED;
     digitalWrite(pinOutMotorOn, RELAY_OFF);
-    g_lastMovePartCompleted = millis() - g_lastMoveStart.getValue();
     outWarnLightTimer.fade(c_blinkTime, c_blinkTime, c_blinkTime, c_blinkTime);
     doorDownPausing.restart();
 }
@@ -268,6 +267,8 @@ void loop() {
         outWarnLightTimer.on();
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
+        doorDownPausing.stop();
+        g_lastMovePartCompleted = 0;
         outRoomLightSwitchOn();
         if (onInButtonDownPressed) {
           inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
@@ -300,15 +301,17 @@ void loop() {
         digitalWrite(pinOutMotorOn, RELAY_OFF);
         const unsigned long moveRemaining = c_moveDurationTotal - (millis() - g_lastMoveStart.getValue());
         delay(c_moveTurnaroundPause);
-        g_lastMoveStart.setValue(millis() - moveRemaining + c_moveTurnaroundPause);
+        g_lastMoveStart.setValue(millis() - moveRemaining);
       } else if (onInLightswitchBlocked) {
         // Light switch is blocked => State change: Go into PAUSED state
         transitionTo_MOVING_DOWN_PAUSED();
+        g_lastMovePartCompleted = millis() - g_lastMoveStart.getValue();
       }
       break;
 
     case DOOR_MOVING_DOWN_PAUSED:
       digitalWrite(pinOutMotorOn, RELAY_OFF);
+      digitalWrite(pinOutMotorUp, RELAY_OFF);
 
       // State change: Pressed button for changing direction?
       if (onInButtonPressed || onInButtonOutsidePressed) {
@@ -317,16 +320,15 @@ void loop() {
         outWarnLightTimer.on();
         const unsigned long moveRemaining = c_moveDurationTotal - g_lastMovePartCompleted;
         g_lastMoveStart.setValue(millis() - moveRemaining);
+      } else if (onInLightswitchBlocked) {
+        // Light switch is still blocked: Still waiting for pause time
+        doorDownPausing.restart();
       } else if (doorDownPausing.onExpired()) {
-        if (onInLightswitchBlocked) {
-          // Light switch is still blocked: Still waiting for pause time
-          doorDownPausing.restart();
-        } else {
-          // Light switch was free again for long enough => State change: Continue moving downwards
-          state = DOOR_MOVING_DOWN;
-          outWarnLightTimer.on();
-          g_lastMoveStart.setValue(millis() - g_lastMovePartCompleted);
-        }
+        // Light switch was free again for long enough => State change: Continue moving downwards
+        state = DOOR_MOVING_DOWN;
+        outWarnLightTimer.on();
+        g_lastMoveStart.setValue(millis() - g_lastMovePartCompleted);
+        digitalWrite(pinOutMotorOn, RELAY_ON);
       }
       break;
 
