@@ -107,9 +107,9 @@ static inline unsigned int currentMoveCompletedToPercent() {
 // The wrappers for the input buttons debouncing
 Bounce inButtonDebounce;
 Bounce inButtonDownDebounce;
-Bounce inLightswitchDebounce;
 BounceAnalog inButtonOutsideDebounce;
 const unsigned long c_debounceDelay = 40;
+unsigned long g_lastLightswitchBlocked = 0;
 
 // The wrapper for the warning light output
 RBD::Light outWarnLightTimer;
@@ -155,8 +155,6 @@ void setup() {
   inButtonDownDebounce.interval(c_debounceDelay);
 
   pinMode(pinInLightswitch, INPUT_PULLUP);
-  inLightswitchDebounce.attach(pinInLightswitch);
-  inLightswitchDebounce.interval(c_debounceDelay);
 
   // The input button that has a potentiometer behaviour (due to humidity)
   inButtonOutsideDebounce.attach(pinAnalogInOutsideButton);
@@ -194,8 +192,11 @@ void loop() {
   const bool onInButtonDownChanged = inButtonDownDebounce.update();
   const bool onInButtonDownPressed = onInButtonDownChanged && (inButtonDownDebounce.read() == LOW);
 
-  const bool onInLightswitchChanged = inLightswitchDebounce.update();
-  const bool onInLightswitchBlocked = (inLightswitchDebounce.read() == HIGH);
+  const bool onInLightswitchBlocked = (digitalRead(pinInLightswitch) == HIGH);
+  if (onInLightswitchBlocked)
+  {
+      g_lastLightswitchBlocked = millis();
+  }
 
   // Update for the timed output LED
   outWarnLightTimer.update();
@@ -266,23 +267,34 @@ void loop() {
       } else
       // State change can be because of multiple things
       if (onInButtonPressed || onInButtonOutsidePressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
-        // Any button was pressed or timer expired => State change: Now move downwards
-        state = DOOR_MOVING_DOWN;
         g_lastMoveStart.setValue(millis());
-        outWarnLightTimer.on();
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
-        doorDownPausing.stop();
         g_lastMovePartCompleted = 0;
         outRoomLightSwitchOn();
         if (onInButtonDownPressed) {
-          inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
+            inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
         }
+        if (onInLightswitchBlocked || millis() <= g_lastLightswitchBlocked + c_movingDownPause) {
+          // Oh, we had somebody blocking the lightswitch, so go into PAUSED mode immediately
+          transitionTo_MOVING_DOWN_PAUSED();
 #ifdef DEBUG
-        Serial.print(millis());
-        Serial.print(": state DOOR_UP -> MOVING_DOWN; lastMoveStart=");
-        Serial.println(g_lastMoveStart.getValue());
+          Serial.print(millis());
+          Serial.print(": state DOOR_UP -> MOVING_DOWN_PAUSED due to lightswitchBlocked. lastMoveStart=");
+          Serial.println(g_lastMoveStart.getValue());
 #endif
+          //delay(1); // maybe this fixes a potential wrong state transition
+        } else {
+          // Any button was pressed or timer expired => State change: Now move downwards
+          state = DOOR_MOVING_DOWN;
+          outWarnLightTimer.on();
+          doorDownPausing.stop();
+#ifdef DEBUG
+          Serial.print(millis());
+          Serial.print(": state DOOR_UP -> MOVING_DOWN; lastMoveStart=");
+          Serial.println(g_lastMoveStart.getValue());
+#endif
+        }
       }
       // While the door is open, check for the timer timeout of re-closing
       if (doorUpStartReclose.onExpired()) {
