@@ -24,8 +24,10 @@ const int pinInLightswitch = 0;
 const int pinAnalogInOutsideButton = 0;
 const int pinAnalogInPhotosensor = 5;
 
-// Active if the serial output should be compiled in.
+// Active this for the numerical values during debugging
 //#define DEBUG
+// Active this for the serial output to be compiled in.
+#define DEBUGOUTPUT
 
 // /////////////////////////////
 
@@ -74,7 +76,7 @@ const unsigned long c_moveDurationTotal =
 #ifdef DEBUG
   5000L;
 #else
-  17000L; // total movement takes this milliseconds; DEBUG: 2000
+  17000L; // total movement takes this milliseconds; DEBUGOUTPUT: 2000
 #endif
 ConstrainedTimestamp g_lastMoveStart(c_moveDurationTotal);
 unsigned long g_lastMovePartCompleted = 0;
@@ -85,19 +87,19 @@ const unsigned long c_waitingTimeBeforeRecloseDaylight =
     10*1000L;
 #else
     // Don't forget the trailing "L"!!!
-    720*1000L; // 12 minutes (720 seconds) before reclose during daylight
+    600*1000L; // 10 minutes (600 seconds) before reclose during daylight
 #endif
 const unsigned long c_waitingTimeBeforeRecloseNight =
 #ifdef DEBUG
     3*1000L;
 #else
-    180*1000L; // 3 minutes (180 sec) before reclose at night
+    180*1000L; // 3 minutes (180 sec) before reclose at night (FIXME: not implemented!)
 #endif
 const unsigned long c_waitingTimeBeforeReallyReclose =
 #ifdef DEBUG
   5*1000L;
 #else
-  10*1000L; // 10 seconds of warning; DEBUG: 3 seconds
+  10*1000L; // 10 seconds of warning
 #endif
 
 static inline unsigned int currentMoveCompletedToPercent() {
@@ -161,7 +163,7 @@ void setup() {
   inButtonOutsideDebounce.interval(c_debounceDelay);
   inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
 
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
   Serial.begin(9600);
 #endif
   doorUpStartReclose.setTimeout(c_waitingTimeBeforeRecloseDaylight);
@@ -203,14 +205,16 @@ void loop() {
   outRoomLightTimer.update();
   outArduinoLed.update();
 
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
   int val;
   g_continuous_printing++;
   if ((g_continuous_printing & 0xFFF) == 0) {
+    Serial.print(" state = ");
+    Serial.print(state);
 //    Serial.print("Photosensor = ");
 //    val = analogRead(pinAnalogInPhotosensor);
 //    Serial.print(val);
-    Serial.print(" analogButton = ");
+    Serial.print(" analogInButton= ");
     val = analogRead(pinAnalogInOutsideButton);
     Serial.print(val);
     Serial.print(" inLightswitch = ");
@@ -223,13 +227,13 @@ void loop() {
   if (onInButtonChanged) {
     Serial.print("onInButtonChanged, now = ");
     Serial.print(inButtonDebounce.read());
-    Serial.print(" at ");
+    Serial.print(" at millis=");
     Serial.println(millis());
   }
   if (onInButtonDownChanged) {
     Serial.print("onInButtonDownChanged, now = ");
     Serial.print(inButtonDownDebounce.read());
-    Serial.print(" at ");
+    Serial.print(" at millis=");
     Serial.println(millis());
   }
 #endif
@@ -245,7 +249,7 @@ void loop() {
         g_lastMoveStart.setValue(millis());
         // Store the current reading of the ambient light photo sensor. Door is closed = ambient light is dark = input pin is HIGH
         g_ambientLightDarkValue = constrain(analogRead(pinAnalogInPhotosensor), 128, 1023);
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print(millis());
         Serial.print(": state DOWN -> MOVING_UP; Resetting ambientLightDarkValue to ");
         Serial.println(g_ambientLightDarkValue);
@@ -278,7 +282,7 @@ void loop() {
         if (onInLightswitchBlocked || millis() <= g_lastLightswitchBlocked + c_movingDownPause) {
           // Oh, we had somebody blocking the lightswitch, so go into PAUSED mode immediately
           transitionTo_MOVING_DOWN_PAUSED();
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
           Serial.print(millis());
           Serial.print(": state DOOR_UP -> MOVING_DOWN_PAUSED due to lightswitchBlocked. lastMoveStart=");
           Serial.println(g_lastMoveStart.getValue());
@@ -289,7 +293,7 @@ void loop() {
           state = DOOR_MOVING_DOWN;
           outWarnLightTimer.on();
           doorDownPausing.stop();
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
           Serial.print(millis());
           Serial.print(": state DOOR_UP -> MOVING_DOWN; lastMoveStart=");
           Serial.println(g_lastMoveStart.getValue());
@@ -314,7 +318,7 @@ void loop() {
         state = DOOR_DOWN;
         outWarnLightTimer.off();
         outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print(millis());
         Serial.print(": state MOVING_DOWN -> DOOR_DOWN; lastMoveStart=");
         Serial.print(g_lastMoveStart.getValue());
@@ -334,7 +338,7 @@ void loop() {
         const unsigned long moveRemaining = c_moveDurationTotal - g_lastMovePartCompleted;
         delay(c_moveTurnaroundPause);
         g_lastMoveStart.setValue(millis() - moveRemaining);
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print("state MOVING_DOWN -> MOVING_UP. lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
 #endif
@@ -342,7 +346,7 @@ void loop() {
         // Light switch is blocked => State change: Go into PAUSED state
         transitionTo_MOVING_DOWN_PAUSED();
         g_lastMovePartCompleted = millis() - g_lastMoveStart.getValue();
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print(millis());
         Serial.print(": state MOVING_DOWN -> PAUSED due to lightswitchBlocked. lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
@@ -362,7 +366,7 @@ void loop() {
         outWarnLightTimer.on();
         const unsigned long moveRemaining = c_moveDurationTotal - g_lastMovePartCompleted;
         g_lastMoveStart.setValue(millis() - moveRemaining);
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print("state PAUSED -> MOVING_UP; lastMovePartCompleted[%] = ");
         Serial.print(currentMoveCompletedToPercent());
         Serial.print(" lastMoveStart=");
@@ -378,7 +382,7 @@ void loop() {
         outWarnLightTimer.on();
         g_lastMoveStart.setValue(millis() - g_lastMovePartCompleted);
         digitalWrite(pinOutMotorOn, RELAY_ON);
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print(millis());
         Serial.print(": state PAUSED -> MOVING_DOWN; lastMovePartCompleted[%] = ");
         Serial.print(currentMoveCompletedToPercent());
@@ -408,7 +412,7 @@ void loop() {
                                       ? c_waitingTimeBeforeRecloseDaylight
                                       : c_waitingTimeBeforeRecloseNight;
         doorUpStartReclose.setTimeout(waitingTime);
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print("state MOVING_UP -> DOOR_UP; Set restarting timer with daylight=");
         Serial.print(daylight);
         Serial.print(" to timeout=");
@@ -423,7 +427,7 @@ void loop() {
         const unsigned long movePartCompleted = millis() - g_lastMoveStart.getValue();
         transitionTo_MOVING_DOWN_PAUSED();
         g_lastMovePartCompleted = c_moveDurationTotal - movePartCompleted;
-#ifdef DEBUG
+#ifdef DEBUGOUTPUT
         Serial.print(millis());
         Serial.println(": state MOVING_UP -> MOVING_DOWN_PAUSED; lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
@@ -432,4 +436,3 @@ void loop() {
       break;
   }
 }
-
