@@ -27,7 +27,7 @@ const int pinAnalogInPhotosensor = 5;
 // Active this for the numerical values during debugging
 //#define DEBUG
 // Active this for the serial output to be compiled in.
-#define DEBUGOUTPUT
+//#define DEBUGOUTPUT
 
 // /////////////////////////////
 
@@ -309,24 +309,40 @@ void loop() {
       break;
 
     case DOOR_MOVING_DOWN:
-      // Door moving downwards/closing
-      digitalWrite(pinOutMotorOn, RELAY_ON);
-      digitalWrite(pinOutMotorUp, RELAY_OFF);
-
-      // State change: Have we reached the DOOR_DOWN position?
-      if (millis() - g_lastMoveStart.getValue() > c_moveDurationTotal) {
-        state = DOOR_DOWN;
-        outWarnLightTimer.off();
-        outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
+      if (onInLightswitchBlocked) {
+        // Light switch is blocked => State change: Go into PAUSED state
+        transitionTo_MOVING_DOWN_PAUSED();
+        g_lastMovePartCompleted = millis() - g_lastMoveStart.getValue();
 #ifdef DEBUGOUTPUT
         Serial.print(millis());
-        Serial.print(": state MOVING_DOWN -> DOOR_DOWN; lastMoveStart=");
-        Serial.print(g_lastMoveStart.getValue());
-        Serial.print(" diff=");
-        Serial.print(millis() - g_lastMoveStart.getValue());
-        Serial.print(" moveTotal=");
-        Serial.println(c_moveDurationTotal);
+        Serial.print(": state MOVING_DOWN -> PAUSED due to lightswitchBlocked. lastMovePartCompleted[%] = ");
+        Serial.println(currentMoveCompletedToPercent());
 #endif
+      } else {
+        // Door moving downwards/closing
+        digitalWrite(pinOutMotorOn, RELAY_ON);
+        digitalWrite(pinOutMotorUp, RELAY_OFF);
+
+
+        // State change: Have we reached the DOOR_DOWN position?
+        if (millis() - g_lastMoveStart.getValue() > c_moveDurationTotal) {
+#ifdef DEBUGOUTPUT
+          Serial.print("State change to DOOR_DOWN with lastMoveStart=");
+          Serial.println(g_lastMoveStart.getValue());
+#endif
+          state = DOOR_DOWN;
+          outWarnLightTimer.off();
+          outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
+#ifdef DEBUGOUTPUT
+          Serial.print(millis());
+          Serial.print(": state MOVING_DOWN -> DOOR_DOWN; lastMoveStart=");
+          Serial.print(g_lastMoveStart.getValue());
+          Serial.print(" diff=");
+          Serial.print(millis() - g_lastMoveStart.getValue());
+          Serial.print(" moveTotal=");
+          Serial.println(c_moveDurationTotal);
+#endif
+        }
       }
 
       // State change: Pressed button for changing direction?
@@ -404,7 +420,7 @@ void loop() {
         outWarnLightTimer.off();
         inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
 
-        // What is the current ambient light? Is it brighter (=input pin is LOW), 
+        // What is the current ambient light? Is it brighter (=input pin is LOW),
         // say than 50% of the "dark" threshold? Then we have daylight.
         const int photoValue = analogRead(pinAnalogInPhotosensor);
         const bool daylight = true; // DISABLED FOR NOW! //(photoValue * 2 < ambientLightDarkValue) || (photoValue > 1023);
