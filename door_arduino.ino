@@ -134,7 +134,7 @@ inline void checkInitialSerialSwitchOff() {
   if (!g_initialSerialSwitchedOff) {
     g_initialSerialSwitchedOff = true;
 #ifdef DEBUGOUTPUT
-    Serial.println("Should switch off serial now");
+    Serial.println("Non-debug build would switch off serial now, but in debug we dont do this");
 #else
     Serial.end();
 
@@ -344,8 +344,8 @@ void loop() {
 #endif
       } else {
         // Door moving downwards/closing
-        digitalWrite(pinOutMotorOn, RELAY_ON);
         digitalWrite(pinOutMotorUp, RELAY_OFF);
+        digitalWrite(pinOutMotorOn, RELAY_ON);
 
 
         // State change: Have we reached the DOOR_DOWN position?
@@ -435,8 +435,8 @@ void loop() {
 
     case DOOR_MOVING_UP:
       // Door moving upwards/opening
-      digitalWrite(pinOutMotorOn, RELAY_ON);
       digitalWrite(pinOutMotorUp, RELAY_ON);
+      digitalWrite(pinOutMotorOn, RELAY_ON);
 
       // State change: Have we reached the DOOR_UP position?
       if (millis() - g_lastMoveStart.getValue() > c_moveDurationTotal) {
