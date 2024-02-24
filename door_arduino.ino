@@ -25,7 +25,6 @@ const int pinInButton = 3;
 const int pinInButtonDown = 2;
 const int pinInLightswitch = 0;
 const int pinAnalogInOutsideButton = 0;
-const int pinAnalogInPhotosensor = 5;
 
 // Active this for the numerical values during debugging
 //#define DEBUG
@@ -85,18 +84,12 @@ ConstrainedTimestamp g_lastMoveStart(c_moveDurationTotal);
 unsigned long g_lastMovePartCompleted = 0;
 const unsigned long c_moveTurnaroundPause = 300; // extra waiting time when switching from one direction to the other
 const unsigned long c_movingDownPause = 800; // If the lightswitch was blocked, wait for this time
-const unsigned long c_waitingTimeBeforeRecloseDaylight =
+const unsigned long c_waitingTimeBeforeReclose =
 #ifdef DEBUG
     10*1000L;
 #else
     // Don't forget the trailing "L"!!!
     600*1000L; // 10 minutes (600 seconds) before reclose during daylight
-#endif
-const unsigned long c_waitingTimeBeforeRecloseNight =
-#ifdef DEBUG
-    3*1000L;
-#else
-    180*1000L; // 3 minutes (180 sec) before reclose at night (FIXME: not implemented!)
 #endif
 const unsigned long c_waitingTimeBeforeReallyReclose =
 #ifdef DEBUG
@@ -126,7 +119,6 @@ const unsigned long c_blinkTime = 200; // milliseconds
 RBD::Timer doorUpStartReclose;
 RBD::Timer doorUpReallyReclose;
 RBD::Timer doorDownPausing;
-int g_ambientLightDarkValue = 1023; // The last value for the dark ambient light (=HIGH input)
 
 // The variable to ensure printing only every 8th time some debug output
 int g_continuous_printing = 0;
@@ -203,7 +195,7 @@ void setup() {
 #ifdef DEBUGOUTPUT
   Serial.begin(9600);
 #endif
-  doorUpStartReclose.setTimeout(c_waitingTimeBeforeRecloseDaylight);
+  doorUpStartReclose.setTimeout(c_waitingTimeBeforeReclose);
   doorUpReallyReclose.setTimeout(c_waitingTimeBeforeReallyReclose);
   doorDownPausing.setTimeout(c_movingDownPause);
   doorUpStartReclose.stop();
@@ -248,9 +240,6 @@ void loop() {
   if ((g_continuous_printing & 0xFFF) == 0) {
     Serial.print(" state = ");
     Serial.print(state);
-//    Serial.print("Photosensor = ");
-//    val = analogRead(pinAnalogInPhotosensor);
-//    Serial.print(val);
     Serial.print(" analogInButton= ");
     val = analogRead(pinAnalogInOutsideButton);
     Serial.print(val);
@@ -284,12 +273,9 @@ void loop() {
       if (onInButtonPressed || onInButtonOutsidePressed) {
         state = DOOR_MOVING_UP;
         g_lastMoveStart.setValue(millis());
-        // Store the current reading of the ambient light photo sensor. Door is closed = ambient light is dark = input pin is HIGH
-        g_ambientLightDarkValue = constrain(analogRead(pinAnalogInPhotosensor), 128, 1023);
 #ifdef DEBUGOUTPUT
         Serial.print(millis());
-        Serial.print(": state DOWN -> MOVING_UP; Resetting ambientLightDarkValue to ");
-        Serial.println(g_ambientLightDarkValue);
+        Serial.println(": state DOWN -> MOVING_UP");
 #endif
         outWarnLightTimer.on();
         outRoomLightSwitchOn();
@@ -458,22 +444,13 @@ void loop() {
         outWarnLightTimer.off();
         inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
 
-        // What is the current ambient light? Is it brighter (=input pin is LOW),
-        // say than 50% of the "dark" threshold? Then we have daylight.
-        const int photoValue = analogRead(pinAnalogInPhotosensor);
-        const bool daylight = true; // DISABLED FOR NOW! //(photoValue * 2 < ambientLightDarkValue) || (photoValue > 1023);
-        const long waitingTime =  daylight
-                                      ? c_waitingTimeBeforeRecloseDaylight
-                                      : c_waitingTimeBeforeRecloseNight;
-        doorUpStartReclose.setTimeout(waitingTime);
+        doorUpStartReclose.setTimeout(c_waitingTimeBeforeReclose);
 #ifdef DEBUGOUTPUT
-        Serial.print("state MOVING_UP -> DOOR_UP; Set restarting timer with daylight=");
-        Serial.print(daylight);
-        Serial.print(" to timeout=");
-        Serial.println(waitingTime);
+        Serial.print("state MOVING_UP -> DOOR_UP; Set restarting timer to timeout=");
+        Serial.println(c_waitingTimeBeforeReclose);
 #endif
         doorUpStartReclose.restart();
-        outArduinoLed.blink(400, daylight ? 400 : 800); // in DOOR_UP state we blink somewhat faster, also depending on daylight
+        outArduinoLed.blink(400, 400); // in DOOR_UP state we blink somewhat faster
       }
 
       // State change: Pressed button for changing direction?
