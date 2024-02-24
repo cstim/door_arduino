@@ -1,7 +1,7 @@
 #include <RBD_Timer.h> // https://github.com/alextaujenis/RBD_Timer
-#include <RBD_Light.h> // https://github.com/alextaujenis/RBD_Light
+#include <RBD_Light.h> // https://github.com/cstim/RBD_Light
 
-// The Bounce2 library http://playground.arduino.cc/Code/Bounce
+// The Bounce2 library https://github.com/thomasfredericks/Bounce2
 #include <Bounce2.h>
 #include <BounceAnalog.h> // a variation of Bounce2 with analog input
 
