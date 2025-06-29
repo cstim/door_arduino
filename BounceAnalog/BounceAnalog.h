@@ -71,13 +71,14 @@ class BounceAnalog
     // Set the current value as the maximum value
     void setCurrentAsMax();
 
+    int m_analogMax;
+
  protected:
     unsigned long previous_millis;
     uint16_t interval_millis;
     uint8_t state;
     uint8_t pin;
     int m_analogMin;
-    int m_analogMax;
 };
 
 #endif

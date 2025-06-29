@@ -3,7 +3,7 @@
 
 // The Bounce2 library https://github.com/thomasfredericks/Bounce2
 #include <Bounce2.h>
-#include <BounceAnalog.h> // a variation of Bounce2 with analog input
+#include <BounceAnalog.h> // a variation of Bounce2 with analog input - FIXME: must make the m_analogMax member public!
 
 // for disabling the serial monitor below
 #include <wiring_private.h>
@@ -118,6 +118,17 @@ inline void outRoomLightSwitchOn() {
   outRoomLightTimer.blink(150, 150, 1);
 }
 
+// Updating the analog outside button
+void adaptAnalogOutsideButton() {
+  int val = analogRead(pinAnalogInOutsideButton);
+  if (val > inButtonOutsideDebounce.m_analogMax + 4) {
+    inButtonOutsideDebounce.m_analogMax += (val - inButtonOutsideDebounce.m_analogMax) / 4;
+  }
+  if (val + 8 < inButtonOutsideDebounce.m_analogMax) {
+    inButtonOutsideDebounce.m_analogMax -= (inButtonOutsideDebounce.m_analogMax - val) / 8;
+  }
+};
+
 // the setup routine runs once when you press reset:
 void setup() {
   // initialize the digital pin as an output.
@@ -226,6 +237,8 @@ void loop() {
     Serial.print(" analogInButton= ");
     val = analogRead(pinAnalogInOutsideButton);
     Serial.print(val);
+    Serial.print(" currentMax = ");
+    Serial.print(inButtonOutsideDebounce.m_analogMax);
     Serial.print(" inLightswitch = ");
     Serial.println(onInLightswitchBlocked);
   }
@@ -262,7 +275,14 @@ void loop() {
 #endif
         outWarnLightTimer.on();
         outRoomLightSwitchOn();
+        break; // jump out of this state
       }
+
+      // While door is closed, check whether we should adapt the analog input button, but only once per second
+      if ((currentMillis & 0x0FFE) == 0) {
+        adaptAnalogOutsideButton();
+      }
+
       break;
 
     case DOOR_UP:
@@ -313,6 +333,10 @@ void loop() {
         doorUpReallyReclose.restart();
         outWarnLightTimer.blink(c_blinkTime, c_blinkTime);
         outRoomLightSwitchOn();
+      }
+      // While door is open, check whether we should adapt the analog input button, but only once per second
+      if ((currentMillis & 0x0FFE) == 0) {
+        adaptAnalogOutsideButton();
       }
       break;
 
