@@ -116,40 +116,6 @@ inline void outRoomLightSwitchOn() {
   outRoomLightTimer.blink(150, 150, 1);
 }
 
-// A flag and a check to make sure to switch off the serial port
-// completely, once the first button is pressed
-static bool g_initialSerialSwitchedOff = false;
-inline void checkInitialSerialSwitchOff() {
-  if (!g_initialSerialSwitchedOff) {
-    g_initialSerialSwitchedOff = true;
-#ifdef DEBUGOUTPUT
-    Serial.println("Non-debug build would switch off serial now, but in debug we dont do this");
-#else
-    Serial.end();
-
-    // From https://stackoverflow.com/questions/52115371 - how to not only disable
-    // the interrupts, but also the serial monitor:
-
-    // Save status register, disable interrupts
-    uint8_t oldSREG = SREG;
-    cli();
-
-    // Disable TX and RX
-    cbi(UCSR0B, RXEN0);
-    cbi(UCSR0B, TXEN0);
-
-    // Disable RX ISR
-    cbi(UCSR0B, RXCIE0);
-
-    // Flush the internal buffer
-    Serial.flush();
-
-    // Restore status register
-    SREG = oldSREG;
-#endif
-  }
-}
-
 // the setup routine runs once when you press reset:
 void setup() {
   // initialize the digital pin as an output.
@@ -269,7 +235,6 @@ void loop() {
 #endif
         outWarnLightTimer.on();
         outRoomLightSwitchOn();
-        checkInitialSerialSwitchOff();
       }
       break;
 
