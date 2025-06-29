@@ -158,9 +158,16 @@ void setup() {
   doorDownPausing.stop();
 }
 
+inline void motorMoveUp(bool shouldMoveUp) {
+  digitalWrite(pinOutMotorUp, shouldMoveUp ? RELAY_ON : RELAY_OFF);
+}
+inline void motorMoving(bool shouldMove) {
+  digitalWrite(pinOutMotorOn, shouldMove ? RELAY_ON : RELAY_OFF);
+}
+
 inline void transitionTo_MOVING_DOWN_PAUSED() {
     state = DOOR_MOVING_DOWN_PAUSED;
-    digitalWrite(pinOutMotorOn, RELAY_OFF);
+    motorMoving(false);
     outWarnLightTimer.fade(c_blinkTime, c_blinkTime, c_blinkTime, c_blinkTime);
     doorDownPausing.restart();
 }
@@ -223,11 +230,11 @@ void loop() {
   switch (state) {
     case DOOR_DOWN:
       // Door down/closed: Make sure motor is off
-      digitalWrite(pinOutMotorOn, RELAY_OFF);
-      digitalWrite(pinOutMotorUp, RELAY_OFF);
+      motorMoving(false);
       // State change: Only when the Up-Button is pressed
       if (onInButtonPressed || onInButtonOutsidePressed) {
         state = DOOR_MOVING_UP;
+        motorMoveUp(true);
         g_lastMoveStart.setValue(currentMillis);
 #ifdef DEBUGOUTPUT
         Serial.print(currentMillis);
@@ -240,8 +247,7 @@ void loop() {
 
     case DOOR_UP:
       // Door up/open: Make sure motor is off
-      digitalWrite(pinOutMotorOn, RELAY_OFF);
-      digitalWrite(pinOutMotorUp, RELAY_OFF);
+      motorMoving(false);
       // Special rule on Up-Button, if the reclose blinking is ongoing: Cancel the reclose
       if (doorUpReallyReclose.isActive() && (onInButtonPressed || onInLightswitchBlocked)) {
         doorUpReallyReclose.stop();
@@ -250,14 +256,15 @@ void loop() {
       } else
       // State change can be because of multiple things
       if (onInButtonPressed || onInButtonOutsidePressed || onInButtonDownPressed || doorUpReallyReclose.onExpired()) {
-        g_lastMoveStart.setValue(currentMillis);
         doorUpStartReclose.stop();
         doorUpReallyReclose.stop();
+        g_lastMoveStart.setValue(currentMillis);
         g_lastMovePartCompleted = 0;
         outRoomLightSwitchOn();
         if (onInButtonDownPressed) {
             inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
         }
+        motorMoveUp(false);
         if (onInLightswitchBlocked || currentMillis <= g_lastLightswitchBlocked + c_movingDownPause) {
           // Oh, we had somebody blocking the lightswitch, so go into PAUSED mode immediately
           transitionTo_MOVING_DOWN_PAUSED();
@@ -267,6 +274,7 @@ void loop() {
           Serial.println(g_lastMoveStart.getValue());
 #endif
           //delay(1); // maybe this fixes a potential wrong state transition
+          break;
         } else {
           // Any button was pressed or timer expired => State change: Now move downwards
           state = DOOR_MOVING_DOWN;
@@ -277,6 +285,7 @@ void loop() {
           Serial.print(": state DOOR_UP -> MOVING_DOWN; lastMoveStart=");
           Serial.println(g_lastMoveStart.getValue());
 #endif
+          break;
         }
       }
       // While the door is open, check for the timer timeout of re-closing
@@ -288,6 +297,7 @@ void loop() {
       break;
 
     case DOOR_MOVING_DOWN:
+      // Lightswitch blocked? Transition to MOVING_DOWN_PAUSED and jump out of this state
       if (onInLightswitchBlocked) {
         // Light switch is blocked => State change: Go into PAUSED state
         transitionTo_MOVING_DOWN_PAUSED();
@@ -297,38 +307,37 @@ void loop() {
         Serial.print(": state MOVING_DOWN -> PAUSED due to lightswitchBlocked. lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
 #endif
-      } else {
-        // Door moving downwards/closing
-        digitalWrite(pinOutMotorUp, RELAY_OFF);
-        digitalWrite(pinOutMotorOn, RELAY_ON);
+        break; // jump out of this state
+      }
 
-
-        // State change: Have we reached the DOOR_DOWN position?
-        if (currentMillis - g_lastMoveStart.getValue() > c_moveDurationTotal) {
+      // Reached end of movement in DOOR_DOWN position? Jump out of this state
+      if (currentMillis - g_lastMoveStart.getValue() > c_moveDurationTotal) {
 #ifdef DEBUGOUTPUT
-          Serial.print("State change to DOOR_DOWN with lastMoveStart=");
-          Serial.println(g_lastMoveStart.getValue());
+        Serial.print("State change to DOOR_DOWN with lastMoveStart=");
+        Serial.println(g_lastMoveStart.getValue());
 #endif
-          state = DOOR_DOWN;
-          outWarnLightTimer.off();
-          outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
+        state = DOOR_DOWN;
+        motorMoving(false);
+        outWarnLightTimer.off();
+        outArduinoLed.blink(2000, 2000); // In DOOR_DOWN, do some slow blinking to show we are alive
 #ifdef DEBUGOUTPUT
-          Serial.print(currentMillis);
-          Serial.print(": state MOVING_DOWN -> DOOR_DOWN; lastMoveStart=");
-          Serial.print(g_lastMoveStart.getValue());
-          Serial.print(" diff=");
-          Serial.print(currentMillis - g_lastMoveStart.getValue());
-          Serial.print(" moveTotal=");
-          Serial.println(c_moveDurationTotal);
+        Serial.print(currentMillis);
+        Serial.print(": state MOVING_DOWN -> DOOR_DOWN; lastMoveStart=");
+        Serial.print(g_lastMoveStart.getValue());
+        Serial.print(" diff=");
+        Serial.print(currentMillis - g_lastMoveStart.getValue());
+        Serial.print(" moveTotal=");
+        Serial.println(c_moveDurationTotal);
 #endif
-        }
+        break; // jump out of this state
       }
 
       // State change: Pressed button for changing direction?
       if (onInButtonPressed || onInButtonOutsidePressed) {
         // Some up-button was pressed => State change: Now move up again
         state = DOOR_MOVING_UP;
-        digitalWrite(pinOutMotorOn, RELAY_OFF);
+        motorMoving(false);
+        motorMoveUp(true);
         g_lastMovePartCompleted = currentMillis - g_lastMoveStart.getValue();
         const unsigned long moveRemaining = c_moveDurationTotal - g_lastMovePartCompleted;
         delay(c_moveTurnaroundPause);
@@ -338,27 +347,24 @@ void loop() {
         Serial.print("state MOVING_DOWN -> MOVING_UP. lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
 #endif
-      } else if (onInLightswitchBlocked) {
-        // Light switch is blocked => State change: Go into PAUSED state
-        transitionTo_MOVING_DOWN_PAUSED();
-        g_lastMovePartCompleted = currentMillis - g_lastMoveStart.getValue();
-#ifdef DEBUGOUTPUT
-        Serial.print(currentMillis);
-        Serial.print(": state MOVING_DOWN -> PAUSED due to lightswitchBlocked. lastMovePartCompleted[%] = ");
-        Serial.println(currentMoveCompletedToPercent());
-#endif
-        delay(1); // otherwise we get a wrong state transition
+        break; // jump out of this state
       }
+      
+      // We stay in MOVE_DOWN state: Door moving downwards/closing
+      //motorMoveUp(false);
+      motorMoving(true);
+
       break;
 
     case DOOR_MOVING_DOWN_PAUSED:
-      digitalWrite(pinOutMotorOn, RELAY_OFF);
-      digitalWrite(pinOutMotorUp, RELAY_OFF);
 
       // State change: Pressed button for changing direction?
       if (onInButtonPressed || onInButtonOutsidePressed) {
         // Some button was pressed => State change: Now move up again
         state = DOOR_MOVING_UP;
+        if (g_lastMovePartCompleted > 0) { // only if we have moved away from DOOR_UP
+          motorMoveUp(true);
+        }
         outWarnLightTimer.on();
         const unsigned long moveRemaining = c_moveDurationTotal - g_lastMovePartCompleted;
         g_lastMoveStart.setValue(currentMillis - moveRemaining);
@@ -369,6 +375,7 @@ void loop() {
         Serial.println(g_lastMoveStart.getValue());
 #endif
         delay(1); // otherwise we get a wrong state transition
+        break; // jump out of this state
       } else if (onInLightswitchBlocked) {
         // Light switch is still blocked: Still waiting for pause time
         doorDownPausing.restart();
@@ -377,7 +384,6 @@ void loop() {
         state = DOOR_MOVING_DOWN;
         outWarnLightTimer.on();
         g_lastMoveStart.setValue(currentMillis - g_lastMovePartCompleted);
-        digitalWrite(pinOutMotorOn, RELAY_ON);
 #ifdef DEBUGOUTPUT
         Serial.print(currentMillis);
         Serial.print(": state PAUSED -> MOVING_DOWN; lastMovePartCompleted[%] = ");
@@ -390,16 +396,12 @@ void loop() {
       break;
 
     case DOOR_MOVING_UP:
-      // First check whether there is still the need to move up
-      if (currentMillis - g_lastMoveStart.getValue() <= c_moveDurationTotal) {
-
-        // Door moving upwards/opening
-        digitalWrite(pinOutMotorUp, RELAY_ON);
-        digitalWrite(pinOutMotorOn, RELAY_ON);
-
-      } else {
+      // Reached end of movement in DOOR_UP position? Jump out of this state
+      if (currentMillis - g_lastMoveStart.getValue() > c_moveDurationTotal) {
         // We have reached the DOOR_UP position
         state = DOOR_UP;
+        motorMoving(false);
+        motorMoveUp(false);
         outWarnLightTimer.off();
         inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
 
@@ -410,19 +412,27 @@ void loop() {
 #endif
         doorUpStartReclose.restart();
         outArduinoLed.blink(400, 400); // in DOOR_UP state we blink somewhat faster
+        break; // jump out of this state
       }
 
       // State change: Pressed button for changing direction?
       if (onInButtonDownPressed) {
         const unsigned long movePartCompleted = currentMillis - g_lastMoveStart.getValue();
         transitionTo_MOVING_DOWN_PAUSED();
+        motorMoveUp(false);
         g_lastMovePartCompleted = c_moveDurationTotal - movePartCompleted;
 #ifdef DEBUGOUTPUT
         Serial.print(currentMillis);
         Serial.println(": state MOVING_UP -> MOVING_DOWN_PAUSED; lastMovePartCompleted[%] = ");
         Serial.println(currentMoveCompletedToPercent());
 #endif
+        break; // jump out of this state
       }
+
+      // Door moving upwards/opening
+      //motorMoveUp(true);
+      motorMoving(true);
+
       break;
   }
 }
