@@ -30,6 +30,8 @@ const int pinAnalogInOutsideButton = 0;
 //#define DEBUG
 // Active this for the serial output to be compiled in.
 //#define DEBUGOUTPUT
+// Activate this for blinking for loop performance measurement
+//#define COUNTBLINKER
 
 // /////////////////////////////
 
@@ -172,9 +174,27 @@ inline void transitionTo_MOVING_DOWN_PAUSED() {
     doorDownPausing.restart();
 }
 
+#ifdef COUNTBLINKER
+int blinkCounter = 0;
+bool blinkerWasOn = false;
+#endif
+
 // the loop routine runs over and over again forever:
 void loop() {
   auto currentMillis = millis();
+
+#ifdef COUNTBLINKER
+  // value of 3000 is approx half a second = this loop is processed approx. 6000 times per second
+  if (blinkCounter > 3000) {
+    if (blinkerWasOn)
+      outRoomLightTimer.off();
+    else
+      outRoomLightTimer.on();
+    blinkerWasOn = !blinkerWasOn;
+    blinkCounter = 0;
+  }
+  blinkCounter = blinkCounter+1;
+#endif
 
   // Update for the input buttons
   const bool onInButtonOutsideChanged = inButtonOutsideDebounce.update();
