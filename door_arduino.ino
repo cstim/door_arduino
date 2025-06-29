@@ -425,12 +425,15 @@ void loop() {
       break;
 
     case DOOR_MOVING_UP:
-      // Door moving upwards/opening
-      digitalWrite(pinOutMotorUp, RELAY_ON);
-      digitalWrite(pinOutMotorOn, RELAY_ON);
+      // First check whether there is still the need to move up
+      if (currentMillis - g_lastMoveStart.getValue() <= c_moveDurationTotal) {
 
-      // State change: Have we reached the DOOR_UP position?
-      if (millis() - g_lastMoveStart.getValue() > c_moveDurationTotal) {
+        // Door moving upwards/opening
+        digitalWrite(pinOutMotorUp, RELAY_ON);
+        digitalWrite(pinOutMotorOn, RELAY_ON);
+
+      } else {
+        // We have reached the DOOR_UP position
         state = DOOR_UP;
         outWarnLightTimer.off();
         inButtonOutsideDebounce.setCurrentAsMax(); // calibrate the current "high" value of the outside button
